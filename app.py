@@ -108,7 +108,23 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# --- Check API Keys ---
+# --- Load & Sync API Keys (Supports os.environ, st.secrets, and aliases) ---
+for k in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "TAVILY_API_KEY", "WEATHERSTACK_API_KEY"]:
+    v = None
+    try:
+        if hasattr(st, "secrets") and k in st.secrets:
+            v = str(st.secrets[k])
+    except Exception:
+        pass
+    if not v and os.getenv(k):
+        v = os.getenv(k)
+
+    if v:
+        clean_v = v.strip().strip("'").strip('"')
+        os.environ[k] = clean_v
+        if k == "GEMINI_API_KEY" and "GOOGLE_API_KEY" not in os.environ:
+            os.environ["GOOGLE_API_KEY"] = clean_v
+
 google_key = os.getenv("GOOGLE_API_KEY")
 tavily_key = os.getenv("TAVILY_API_KEY")
 weather_key = os.getenv("WEATHERSTACK_API_KEY")
@@ -119,7 +135,7 @@ if not tavily_key: missing_keys.append("TAVILY_API_KEY")
 if not weather_key: missing_keys.append("WEATHERSTACK_API_KEY")
 
 if missing_keys:
-    st.warning(f"⚠️ Missing environment variables: `{', '.join(missing_keys)}`. Please check your `.env` file or deployment settings.")
+    st.warning(f"⚠️ Missing environment variables: `{', '.join(missing_keys)}`. Please check your deployment settings.")
 
 # --- Session State Initialization ---
 if "messages" not in st.session_state:
