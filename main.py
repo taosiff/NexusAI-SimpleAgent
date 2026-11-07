@@ -12,7 +12,6 @@ from dotenv import load_dotenv
 
 from langchain_openai import ChatOpenAI
 from langchain_community.tools.tavily_search import TavilySearchResults
-from langchain import hub
 from langchain.tools import tool
 from langchain.prompts import PromptTemplate
 from langchain.agents import create_react_agent, AgentExecutor
@@ -30,7 +29,6 @@ def parse_city_input(city_input) -> str:
         return city_input.get("city", str(city_input))
     
     city_str = str(city_input).strip()
-    # Check if input was provided as JSON string like {"city": "Tokyo"}
     if city_str.startswith("{") and city_str.endswith("}"):
         try:
             parsed = json.loads(city_str)
@@ -39,7 +37,6 @@ def parse_city_input(city_input) -> str:
         except Exception:
             pass
             
-    # Remove surrounding quotes or braces if any
     city_str = re.sub(r'[\'"{}]', '', city_str).strip()
     return city_str
 
@@ -99,30 +96,31 @@ def get_agent_executor(max_search_results: int = 3, temperature: float = 0.0) ->
     search_tool = TavilySearchResults(max_results=max_search_results)
     tools = [search_tool, get_weather_data]
 
-    # 3. Load ReAct Prompt (with resilient offline fallback)
-    try:
-        prompt = hub.pull("hwchase17/react")
-    except Exception:
-        template = (
-            "Answer the following questions as best you can. You have access to the following tools:\n\n"
-            "{tools}\n\n"
-            "Use the following format:\n\n"
-            "Question: the input question you must answer\n"
-            "Thought: you should always think about what to do\n"
-            "Action: the action to take, should be one of [{tool_names}]\n"
-            "Action Input: the input to the action\n"
-            "Observation: the result of the action\n"
-            "... (this Thought/Action/Action Input/Observation can repeat N times)\n"
-            "Thought: I now know the final answer\n"
-            "Final Answer: the final answer to the original input question\n\n"
-            "Begin!\n\n"
-            "Question: {input}\n"
-            "Thought:{agent_scratchpad}"
-        )
-        prompt = PromptTemplate(
-            template=template,
-            input_variables=["input", "tools", "tool_names", "agent_scratchpad"]
-        )
+    # 3. Optimized ReAct Prompt with clean direct answering support
+    template = (
+        "Answer the following questions as best you can. You have access to the following tools:\n\n"
+        "{tools}\n\n"
+        "Use the following format:\n\n"
+        "Question: the input question you must answer\n"
+        "Thought: you should always think about what to do\n"
+        "Action: the action to take, should be one of [{tool_names}]\n"
+        "Action Input: the input to the action\n"
+        "Observation: the result of the action\n"
+        "... (this Thought/Action/Action Input/Observation can repeat N times)\n"
+        "Thought: I now know the final answer\n"
+        "Final Answer: the final answer to the original input question\n\n"
+        "Important Rule: If you already know the answer directly and do not need to use any tools, "
+        "do NOT output Action. Instead, directly write:\n"
+        "Thought: I know the answer without needing tools.\n"
+        "Final Answer: [your complete answer here]\n\n"
+        "Begin!\n\n"
+        "Question: {input}\n"
+        "Thought:{agent_scratchpad}"
+    )
+    prompt = PromptTemplate(
+        template=template,
+        input_variables=["input", "tools", "tool_names", "agent_scratchpad"]
+    )
 
     # 4. Construct Agent & Executor
     agent = create_react_agent(llm=llm, tools=tools, prompt=prompt)
@@ -147,4 +145,3 @@ if __name__ == "__main__":
         print(f"\nFinal Response:\n{response['output']}")
     except Exception as err:
         print(f"Error running agent: {err}")
-

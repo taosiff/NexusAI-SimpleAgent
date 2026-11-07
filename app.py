@@ -41,24 +41,45 @@ st.markdown("""
     }
     .badge-gemini { background-color: #E8F0FE; color: #1967D2; }
     .badge-langchain { background-color: #EEFBE7; color: #1E7E34; }
-    .badge-tavily { background-color: #FFF3E0; color: #E65100; }
-    .badge-weather { background-color: #E1F5FE; color: #0288D1; }
 
     /* Tool Step Card */
-    .step-card {
-        background-color: #F7FAFC;
-        border-left: 4px solid #4A90E2;
-        padding: 10px 14px;
-        margin-bottom: 8px;
-        border-radius: 4px;
-        font-size: 0.88rem;
-    }
-    .step-tool {
-        font-weight: 700;
-        color: #2D3748;
+    .step-box {
+        background-color: #F8FAFC;
+        border: 1px solid #E2E8F0;
+        border-left: 4px solid #3B82F6;
+        padding: 12px 16px;
+        border-radius: 6px;
+        margin-bottom: 12px;
+        font-size: 0.9rem;
     }
 </style>
 """, unsafe_allow_html=True)
+
+# --- Load & Sync API Keys ---
+for k in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "TAVILY_API_KEY", "WEATHERSTACK_API_KEY"]:
+    v = None
+    try:
+        if hasattr(st, "secrets") and k in st.secrets:
+            v = str(st.secrets[k])
+    except Exception:
+        pass
+    if not v and os.getenv(k):
+        v = os.getenv(k)
+
+    if v:
+        clean_v = v.strip().strip("'").strip('"')
+        os.environ[k] = clean_v
+        if k == "GEMINI_API_KEY" and "GOOGLE_API_KEY" not in os.environ:
+            os.environ["GOOGLE_API_KEY"] = clean_v
+
+google_key = os.getenv("GOOGLE_API_KEY")
+tavily_key = os.getenv("TAVILY_API_KEY")
+weather_key = os.getenv("WEATHERSTACK_API_KEY")
+
+missing_keys = []
+if not google_key: missing_keys.append("GOOGLE_API_KEY")
+if not tavily_key: missing_keys.append("TAVILY_API_KEY")
+if not weather_key: missing_keys.append("WEATHERSTACK_API_KEY")
 
 # --- Sidebar Configuration ---
 with st.sidebar:
@@ -76,7 +97,7 @@ with st.sidebar:
     
     st.markdown("---")
     st.markdown("#### ⚙️ Settings")
-    temperature = st.slider("Model Temperature", min_value=0.0, max_value=1.0, value=0.0, step=0.1, help="Lower = more deterministic; Higher = more creative.")
+    temperature = st.slider("Model Temperature", min_value=0.0, max_value=1.0, value=0.0, step=0.1, help="Lower = strict & factual; Higher = creative.")
     max_search_results = st.slider("Max Search Results", min_value=1, max_value=5, value=2)
 
     st.markdown("---")
@@ -104,35 +125,9 @@ with st.sidebar:
 # --- Main Application Header ---
 st.markdown("<div class='main-title'>⚡ NexusAI Intelligence Agent</div>", unsafe_allow_html=True)
 st.markdown(
-    "<div class='sub-title'>An autonomous ReAct agent powered by <b>Google Gemini 3.5</b> and <b>LangChain</b> capable of multi-step reasoning, real-time web search, and live weather tracking.</div>",
+    "<div class='sub-title'>An autonomous ReAct agent powered by <b>Google Gemini 3.5</b> and <b>LangChain</b> with transparent reasoning, real-time web search, and live weather tracking.</div>",
     unsafe_allow_html=True
 )
-
-# --- Load & Sync API Keys (Supports os.environ, st.secrets, and aliases) ---
-for k in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "TAVILY_API_KEY", "WEATHERSTACK_API_KEY"]:
-    v = None
-    try:
-        if hasattr(st, "secrets") and k in st.secrets:
-            v = str(st.secrets[k])
-    except Exception:
-        pass
-    if not v and os.getenv(k):
-        v = os.getenv(k)
-
-    if v:
-        clean_v = v.strip().strip("'").strip('"')
-        os.environ[k] = clean_v
-        if k == "GEMINI_API_KEY" and "GOOGLE_API_KEY" not in os.environ:
-            os.environ["GOOGLE_API_KEY"] = clean_v
-
-google_key = os.getenv("GOOGLE_API_KEY")
-tavily_key = os.getenv("TAVILY_API_KEY")
-weather_key = os.getenv("WEATHERSTACK_API_KEY")
-
-missing_keys = []
-if not google_key: missing_keys.append("GOOGLE_API_KEY")
-if not tavily_key: missing_keys.append("TAVILY_API_KEY")
-if not weather_key: missing_keys.append("WEATHERSTACK_API_KEY")
 
 if missing_keys:
     st.warning(f"⚠️ Missing environment variables: `{', '.join(missing_keys)}`. Please check your deployment settings.")
@@ -142,23 +137,40 @@ if "messages" not in st.session_state:
     st.session_state.messages = [
         {
             "role": "assistant",
-            "content": "Hello! I am **NexusAI**, an autonomous AI agent. I can perform live web searches, look up real-time global weather, and reason across multiple steps to answer complex inquiries. How can I help you today?"
+            "content": "Hello! I am **NexusAI**, an autonomous AI agent. I can perform live web searches, check real-time global weather, and reason across multiple steps to answer complex inquiries. How can I help you today?",
+            "steps": []
         }
     ]
 
-# Display Chat History
+
+def render_steps(steps):
+    """Renders agent tool steps openly without hiding them."""
+    valid_steps = [s for s in steps if s[0].tool != "_Exception"]
+    if not valid_steps:
+        return
+    
+    st.markdown("##### 🧠 Agent Tool Executions")
+    for i, (action, observation) in enumerate(valid_steps, 1):
+        tool_name = "Tavily Web Search" if "tavily" in action.tool.lower() else "Weatherstack API" if "weather" in action.tool.lower() else action.tool
+        with st.container():
+            st.markdown(f"""
+            <div class="step-box">
+                <b>Step {i}: Invoked <code>{tool_name}</code></b><br>
+                <b>Input:</b> <code>{action.tool_input}</code><br>
+                <b>Observation:</b><br>
+                <pre style="white-space: pre-wrap; font-size: 12px; margin-top: 5px;">{str(observation).strip()}</pre>
+            </div>
+            """, unsafe_allow_html=True)
+
+
+# --- Display Chat History ---
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
-        st.markdown(message["content"])
         if "steps" in message and message["steps"]:
-            with st.expander("🔍 View Agent Thought Process & Tool Steps"):
-                for action, observation in message["steps"]:
-                    st.markdown(f"**Action:** `{action.tool}`")
-                    st.markdown(f"**Input:** `{action.tool_input}`")
-                    st.markdown(f"**Observation:**\n```\n{observation}\n```")
-                    st.markdown("---")
+            render_steps(message["steps"])
+        st.markdown(message["content"])
 
-# Handle User Input (via chat input or sidebar quick prompt)
+# --- Handle User Input ---
 user_prompt = st.chat_input("Ask a question or request an action...")
 if "queued_prompt" in st.session_state and st.session_state["queued_prompt"]:
     user_prompt = st.session_state.pop("queued_prompt")
@@ -171,42 +183,41 @@ if user_prompt:
 
     # 2. Execute Agent
     with st.chat_message("assistant"):
-        with st.status("🧠 NexusAI is reasoning & querying tools...", expanded=True) as status_box:
-            try:
-                executor = get_agent_executor(
-                    max_search_results=max_search_results,
-                    temperature=temperature
-                )
-                
-                response = executor.invoke({"input": user_prompt})
-                output_text = response.get("output", "No response generated.")
-                steps = response.get("intermediate_steps", [])
+        thought_placeholder = st.empty()
+        thought_placeholder.info("🧠 **NexusAI is analyzing your request and determining necessary tools...**")
 
-                # Render intermediate reasoning in the status widget
-                if steps:
-                    for i, (action, observation) in enumerate(steps, 1):
-                        st.write(f"**Step {i}: Using Tool** `{action.tool}`")
-                        st.code(f"Input: {action.tool_input}\nResult: {str(observation)[:300]}...", language="text")
-                else:
-                    st.write("Direct reasoning without external tools.")
+        try:
+            executor = get_agent_executor(
+                max_search_results=max_search_results,
+                temperature=temperature
+            )
+            
+            response = executor.invoke({"input": user_prompt})
+            output_text = response.get("output", "No response generated.")
+            steps = response.get("intermediate_steps", [])
 
-                status_box.update(label="✅ Task Completed!", state="complete", expanded=False)
+            # Clear temporary thinking banner
+            thought_placeholder.empty()
 
-                # Render final markdown answer
-                st.markdown(output_text)
+            # Render all reasoning and tool calls visibly
+            if steps:
+                render_steps(steps)
 
-                # Save to session history
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": output_text,
-                    "steps": steps
-                })
+            # Render final answer prominently
+            st.markdown(output_text)
 
-            except Exception as e:
-                status_box.update(label="❌ Execution Error", state="error", expanded=True)
-                st.error(f"Error during execution: {str(e)}")
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": f"⚠️ An error occurred while executing your request: `{str(e)}`"
-                })
+            # Save to history
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": output_text,
+                "steps": steps
+            })
 
+        except Exception as e:
+            thought_placeholder.empty()
+            st.error(f"Error during execution: {str(e)}")
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": f"⚠️ An error occurred while executing your request: `{str(e)}`",
+                "steps": []
+            })
