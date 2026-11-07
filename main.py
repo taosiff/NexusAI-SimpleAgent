@@ -1,5 +1,5 @@
 """
-main.py - Core AI Agent Engine
+main.py - Core AI Agent Engine with Conversational Memory
 Built with LangChain, Google Gemini, Tavily Search, and Weatherstack API.
 """
 
@@ -15,6 +15,7 @@ from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain.tools import tool
 from langchain.prompts import PromptTemplate
 from langchain.agents import create_react_agent, AgentExecutor
+from langchain.memory import ConversationBufferMemory
 
 # Configure SSL certificate path
 os.environ["SSL_CERT_FILE"] = certifi.where()
@@ -76,9 +77,9 @@ def get_weather_data(city: str) -> str:
         return f"Network error fetching weather data for '{clean_city}': {str(e)}"
 
 
-def get_agent_executor(max_search_results: int = 3, temperature: float = 0.0) -> AgentExecutor:
+def get_agent_executor(max_search_results: int = 3, temperature: float = 0.0, memory=None) -> AgentExecutor:
     """
-    Initializes and returns the complete ReAct AgentExecutor.
+    Initializes and returns the complete ReAct AgentExecutor with conversational memory.
     """
     google_api_key = os.getenv("GOOGLE_API_KEY")
     if not google_api_key:
@@ -96,7 +97,7 @@ def get_agent_executor(max_search_results: int = 3, temperature: float = 0.0) ->
     search_tool = TavilySearchResults(max_results=max_search_results)
     tools = [search_tool, get_weather_data]
 
-    # 3. Optimized ReAct Prompt with clean direct answering support
+    # 3. Conversational ReAct Prompt Template (Includes {chat_history})
     template = (
         "Answer the following questions as best you can. You have access to the following tools:\n\n"
         "{tools}\n\n"
@@ -109,24 +110,29 @@ def get_agent_executor(max_search_results: int = 3, temperature: float = 0.0) ->
         "... (this Thought/Action/Action Input/Observation can repeat N times)\n"
         "Thought: I now know the final answer\n"
         "Final Answer: the final answer to the original input question\n\n"
-        "Important Rule: If you already know the answer directly and do not need to use any tools, "
-        "do NOT output Action. Instead, directly write:\n"
+        "Important Rule: If you already know the answer directly and do not need tools, do NOT output Action. Write:\n"
         "Thought: I know the answer without needing tools.\n"
         "Final Answer: [your complete answer here]\n\n"
-        "Begin!\n\n"
-        "Question: {input}\n"
+        "Previous conversation history:\n"
+        "{chat_history}\n\n"
+        "New Question: {input}\n"
         "Thought:{agent_scratchpad}"
     )
     prompt = PromptTemplate(
         template=template,
-        input_variables=["input", "tools", "tool_names", "agent_scratchpad"]
+        input_variables=["input", "tools", "tool_names", "agent_scratchpad", "chat_history"]
     )
 
-    # 4. Construct Agent & Executor
+    # 4. Handle Memory with explicit output_key
+    if memory is None:
+        memory = ConversationBufferMemory(memory_key="chat_history", output_key="output")
+
+    # 5. Construct Agent & Executor
     agent = create_react_agent(llm=llm, tools=tools, prompt=prompt)
     agent_executor = AgentExecutor(
         agent=agent,
         tools=tools,
+        memory=memory,
         verbose=True,
         handle_parsing_errors=True,
         return_intermediate_steps=True
@@ -136,12 +142,19 @@ def get_agent_executor(max_search_results: int = 3, temperature: float = 0.0) ->
 
 
 if __name__ == "__main__":
-    print("Testing Agent from CLI...")
+    print("Testing Agent with Memory from CLI...")
     try:
-        executor = get_agent_executor()
-        query = "What is the capital of Bangladesh and what is the current weather there?"
-        print(f"\nUser Query: {query}\n")
-        response = executor.invoke({"input": query})
-        print(f"\nFinal Response:\n{response['output']}")
+        shared_memory = ConversationBufferMemory(memory_key="chat_history", output_key="output")
+        executor = get_agent_executor(memory=shared_memory)
+        
+        q1 = "Hi, remember that my favorite color is emerald green."
+        print(f"\nUser: {q1}")
+        r1 = executor.invoke({"input": q1})
+        print(f"Agent: {r1['output']}")
+
+        q2 = "What is my favorite color?"
+        print(f"\nUser: {q2}")
+        r2 = executor.invoke({"input": q2})
+        print(f"Agent: {r2['output']}")
     except Exception as err:
         print(f"Error running agent: {err}")

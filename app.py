@@ -1,9 +1,10 @@
 """
-app.py - Sleek Streamlit Web Interface for NexusAI Agent
+app.py - Sleek Streamlit Web Interface for NexusAI Agent with Conversational Memory
 """
 
 import os
 import streamlit as st
+from langchain.memory import ConversationBufferMemory
 from main import get_agent_executor
 
 # --- Page Configuration ---
@@ -41,6 +42,7 @@ st.markdown("""
     }
     .badge-gemini { background-color: #E8F0FE; color: #1967D2; }
     .badge-langchain { background-color: #EEFBE7; color: #1E7E34; }
+    .badge-memory { background-color: #F3E8FF; color: #6B21A8; }
 
     /* Tool Step Card */
     .step-box {
@@ -81,17 +83,26 @@ if not google_key: missing_keys.append("GOOGLE_API_KEY")
 if not tavily_key: missing_keys.append("TAVILY_API_KEY")
 if not weather_key: missing_keys.append("WEATHERSTACK_API_KEY")
 
+# --- Initialize Conversational Memory in Session State ---
+if "memory" not in st.session_state:
+    st.session_state.memory = ConversationBufferMemory(
+        memory_key="chat_history",
+        output_key="output"
+    )
+
 # --- Sidebar Configuration ---
 with st.sidebar:
     st.markdown("### ⚡ NexusAI Agent")
     st.markdown(
         "<span class='badge badge-gemini'>Google Gemini 3.5</span>"
-        "<span class='badge badge-langchain'>LangChain</span>",
+        "<span class='badge badge-langchain'>LangChain</span>"
+        "<span class='badge badge-memory'>Active Memory</span>",
         unsafe_allow_html=True
     )
     st.markdown("---")
     
-    st.markdown("#### 🛠️ Active Tools")
+    st.markdown("#### 🛠️ Active Tools & Capabilities")
+    st.markdown("- 🧠 **Conversational Memory**: Retains context across chat turns")
     st.markdown("- 🔍 **Tavily Search**: Real-time web retrieval & breaking news")
     st.markdown("- 🌦️ **Weatherstack API**: Live global weather conditions")
     
@@ -103,10 +114,10 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("#### 💡 Quick Prompts")
     prompt_options = [
+        "Hi, remember that my name is Alice and I am a software engineer.",
+        "What is my name and profession?",
         "What is the capital of Bangladesh and what is the current weather there?",
-        "What are the latest updates on the 2026 US midterm elections?",
-        "Compare the current weather in Tokyo and Paris.",
-        "What are the top AI breakthroughs in robotics this month?"
+        "Compare the current weather in Tokyo and Paris."
     ]
     
     for p in prompt_options:
@@ -114,8 +125,9 @@ with st.sidebar:
             st.session_state["queued_prompt"] = p
 
     st.markdown("---")
-    if st.button("🧹 Clear Conversation", use_container_width=True):
+    if st.button("🧹 Clear Conversation & Memory", use_container_width=True):
         st.session_state.messages = []
+        st.session_state.memory.clear()
         st.session_state.pop("queued_prompt", None)
         st.rerun()
 
@@ -125,7 +137,7 @@ with st.sidebar:
 # --- Main Application Header ---
 st.markdown("<div class='main-title'>⚡ NexusAI Intelligence Agent</div>", unsafe_allow_html=True)
 st.markdown(
-    "<div class='sub-title'>An autonomous ReAct agent powered by <b>Google Gemini 3.5</b> and <b>LangChain</b> with transparent reasoning, real-time web search, and live weather tracking.</div>",
+    "<div class='sub-title'>An autonomous ReAct agent powered by <b>Google Gemini 3.5</b> and <b>LangChain</b> with <b>conversational memory</b>, live web search, and real-time weather telemetry.</div>",
     unsafe_allow_html=True
 )
 
@@ -137,7 +149,7 @@ if "messages" not in st.session_state:
     st.session_state.messages = [
         {
             "role": "assistant",
-            "content": "Hello! I am **NexusAI**, an autonomous AI agent. I can perform live web searches, check real-time global weather, and reason across multiple steps to answer complex inquiries. How can I help you today?",
+            "content": "Hello! I am **NexusAI**, an autonomous AI agent with **active conversational memory**. I remember our chat history, can perform live web searches, and look up real-time weather. How can I help you today?",
             "steps": []
         }
     ]
@@ -184,12 +196,13 @@ if user_prompt:
     # 2. Execute Agent
     with st.chat_message("assistant"):
         thought_placeholder = st.empty()
-        thought_placeholder.info("🧠 **NexusAI is analyzing your request and determining necessary tools...**")
+        thought_placeholder.info("🧠 **NexusAI is analyzing your request and conversational context...**")
 
         try:
             executor = get_agent_executor(
                 max_search_results=max_search_results,
-                temperature=temperature
+                temperature=temperature,
+                memory=st.session_state.memory
             )
             
             response = executor.invoke({"input": user_prompt})
