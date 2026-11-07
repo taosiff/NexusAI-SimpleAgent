@@ -132,6 +132,7 @@ with st.sidebar:
         st.rerun()
 
     st.caption("Developed with ❤️ using Python, LangChain & Streamlit.")
+    st.info("ℹ️ **Free Demo Notice:** This app operates on free developer API tiers. If you encounter rate limits, please wait a moment before trying again.", icon="💡")
 
 
 # --- Main Application Header ---
